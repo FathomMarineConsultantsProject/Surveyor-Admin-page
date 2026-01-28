@@ -1,13 +1,12 @@
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token =
     localStorage.getItem("admin_token") ||
     sessionStorage.getItem("admin_token")
 
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
-
 
 async function safeJson(res: Response) {
   try {
@@ -49,7 +48,10 @@ export async function apiPatch(url: string, body?: any) {
     },
     body: JSON.stringify(body ?? {}),
   })
-  const data = await res.json()
+
+  const data = await safeJson(res)
+
   if (!res.ok) throw new Error(data?.message || "Request failed")
+
   return data
 }

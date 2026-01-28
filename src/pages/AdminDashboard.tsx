@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import AdminLayout from "../layout/AdminLayout"
 import { getFormStats } from "../services/records.api"
 

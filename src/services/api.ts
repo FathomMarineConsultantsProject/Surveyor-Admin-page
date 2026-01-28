@@ -1,12 +1,17 @@
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
-function authHeaders(): Record<string, string> {
+function authHeaders(): HeadersInit {
   const token =
     localStorage.getItem("admin_token") ||
     sessionStorage.getItem("admin_token")
 
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  if (!token) return {}
+
+  return {
+    Authorization: `Bearer ${token}`,
+  }
 }
+
 
 async function safeJson(res: Response) {
   try {
@@ -21,10 +26,10 @@ async function safeJson(res: Response) {
 ---------------------------- */
 export async function apiGet(url: string) {
   const res = await fetch(`${BASE_URL}${url}`, {
-    headers: {
+    headers: new Headers({
       Accept: "application/json",
-      ...authHeaders(),
-    },
+      ...(authHeaders() as Record<string, string>),
+    }),
   })
 
   const data = await safeJson(res)
@@ -36,16 +41,17 @@ export async function apiGet(url: string) {
   return data
 }
 
+
 /* ---------------------------
    PATCH
 ---------------------------- */
 export async function apiPatch(url: string, body?: any) {
   const res = await fetch(`${BASE_URL}${url}`, {
     method: "PATCH",
-    headers: {
+    headers: new Headers({
       "Content-Type": "application/json",
-      ...authHeaders(),
-    },
+      ...(authHeaders() as Record<string, string>),
+    }),
     body: JSON.stringify(body ?? {}),
   })
 
@@ -55,3 +61,4 @@ export async function apiPatch(url: string, body?: any) {
 
   return data
 }
+

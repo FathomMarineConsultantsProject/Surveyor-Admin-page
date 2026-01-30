@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000"
+const BASE_URL = import.meta.env.VITE_API_URL || "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app";
 
 function authHeaders(): HeadersInit {
   const token =
@@ -25,7 +25,8 @@ async function safeJson(res: Response) {
    GET
 ---------------------------- */
 export async function apiGet(url: string) {
-  const res = await fetch(`${BASE_URL}${url}`, {
+  const endpoint = url.startsWith('/') ? url : `/${url}`;
+  const res = await fetch(`${BASE_URL}${endpoint}`, {
     headers: new Headers({
       Accept: "application/json",
       ...(authHeaders() as Record<string, string>),
@@ -45,8 +46,9 @@ export async function apiGet(url: string) {
 /* ---------------------------
    PATCH
 ---------------------------- */
-export async function apiPatch(url: string, body?: any) {
-  const res = await fetch(`${BASE_URL}${url}`, {
+export async function apiPatch(url: string, body?: unknown) {
+  const endpoint = url.startsWith('/') ? url : `/${url}`;
+  const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "PATCH",
     headers: new Headers({
       "Content-Type": "application/json",

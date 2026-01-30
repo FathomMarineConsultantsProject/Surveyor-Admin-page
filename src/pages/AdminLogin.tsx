@@ -18,7 +18,7 @@ export default function AdminLogin() {
       setLoading(true)
       setErr("")
 
-      const base = import.meta.env.VITE_API_URL || "http://localhost:5000"
+      const base = import.meta.env.VITE_API_URL || "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app"
 
       const res = await fetch(`${base}/api/admin/login`, {
         method: "POST",
@@ -40,8 +40,14 @@ export default function AdminLogin() {
       else sessionStorage.setItem("admin_token", token)
 
       navigate("/admin")
-    } catch (e: any) {
-      setErr(e?.message || "Login failed")
+    } catch (e: unknown) {
+      console.error("Login Error:", e)
+      
+      if (e instanceof Error) {
+        setErr(e.message)
+      } else {
+        setErr("Login failed. Please check your connection.")
+      }
     } finally {
       setLoading(false)
     }

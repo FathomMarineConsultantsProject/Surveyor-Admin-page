@@ -1,9 +1,6 @@
-import{ useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import AdminLayout from "../layout/AdminLayout"
-import { getFormRecords, markReviewed ,approveForm} from "../services/records.api"
-//import { approveForm } from "../services/records.api"
-
-
+import { getFormRecords, markReviewed, approveForm } from "../services/records.api"
 
 /*
   FORM RECORDS (API + UI)
@@ -69,7 +66,6 @@ const COLUMNS = [
 
   { key: "actions", label: "Actions" },
   { key: "approve", label: "Approve" },
-
 ]
 
 const OTHER_KEYS = new Set([
@@ -113,8 +109,9 @@ function normalizeRecord(r: any) {
     yearStarted: r.year_started ?? "",
     heardAbout: r.heard_about ?? "",
 
-    street1: r.street1 ?? "",
-    street2: r.street2 ?? "",
+    // NOTE: if your backend returns snake_case here, keep these as you have them
+    street1: r.street1 ?? r.street1 ?? "",
+    street2: r.street2 ?? r.street2 ?? "",
     city: r.city ?? "",
     postalCode: r.postal_code ?? "",
     country: r.country ?? "",
@@ -142,6 +139,7 @@ function normalizeRecord(r: any) {
     inspectionCost: r.inspection_cost ?? "",
     marketingConsent: !!r.marketing_consent,
 
+    // ✅ Other fields (snake_case from DB)
     disciplineOther: r.discipline_other ?? "",
     rankOther: r.rank_other ?? "",
     qualificationsOther: r.qualifications_other ?? "",
@@ -155,15 +153,28 @@ function normalizeRecord(r: any) {
     dobDD: r.dob_dd ?? "",
     dobMM: r.dob_mm ?? "",
     dobYYYY: r.dob_yyyy ?? "",
+
     approved: !!(r.approved ?? r.is_approved),
     approvedAt: r.approvedAt ?? r.approved_at ?? null,
-
   }
 }
 
-
-
 const joinArr = (v: any) => (Array.isArray(v) ? v.join(", ") : v || "—")
+
+// ✅ IMPORTANT: show "Other (text)" when array includes Other
+const withOther = (arr: any, otherText?: string) => {
+  const list = Array.isArray(arr) ? arr : []
+
+  const hasOther = list.includes("Other") || list.includes("other")
+  const cleaned = list.filter((x) => x !== "Other" && x !== "other")
+
+  if (!hasOther) return cleaned.length ? cleaned.join(", ") : "—"
+
+  const extra = (otherText ?? "").trim()
+  if (!extra) return [...cleaned, "Other"].filter(Boolean).join(", ")
+
+  return [...cleaned, `Other (${extra})`].filter(Boolean).join(", ")
+}
 
 const formatDOB = (r: any) => {
   if (!r?.dobDD && !r?.dobMM && !r?.dobYYYY) return "—"
@@ -174,7 +185,9 @@ const formatExperienceByQualification = (obj: any) => {
   if (!obj || typeof obj !== "object") return "—"
   const entries = Object.entries(obj)
   if (!entries.length) return "—"
-  return entries.map(([k, t]: any) => `${k}: ${t.years}y ${t.months}m ${t.days}d`).join(" | ")
+  return entries
+    .map(([k, t]: any) => `${k}: ${t.years}y ${t.months}m ${t.days}d`)
+    .join(" | ")
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000"
@@ -193,8 +206,6 @@ const clipMiddle = (s = "", head = 18, tail = 10) => {
   return `${s.slice(0, head)}...${s.slice(-tail)}`
 }
 
-
-
 export default function FormRecords() {
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -206,26 +217,26 @@ export default function FormRecords() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reviewed">("pending")
 
   const pageSize = 8
- async function handleReview(id: number) {
-  try {
-    setBusyId(id)
-    await markReviewed(id)
-    setRows((prev) => prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x)))
-  } finally {
-    setBusyId(null)
-  }
-}
 
-async function handleApprove(id: number) {
-  try {
-    setBusyId(id)
-    await approveForm(id)
-    setRows((prev) => prev.map((x) => (x.id === id ? { ...x, approved: true } : x)))
-  } finally {
-    setBusyId(null)
+  async function handleReview(id: number) {
+    try {
+      setBusyId(id)
+      await markReviewed(id)
+      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x)))
+    } finally {
+      setBusyId(null)
+    }
   }
-}
 
+  async function handleApprove(id: number) {
+    try {
+      setBusyId(id)
+      await approveForm(id)
+      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, approved: true } : x)))
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   useEffect(() => {
     let mounted = true
@@ -264,8 +275,7 @@ async function handleApprove(id: number) {
     if (!query) return base
 
     return base.filter((r) => {
-      const hay =
-        `${r.firstName} ${r.lastName} ${r.email} ${r.mobileNumber} ${r.companyName} ${r.rank} ${r.discipline}`.toLowerCase()
+      const hay = `${r.firstName} ${r.lastName} ${r.email} ${r.mobileNumber} ${r.companyName} ${r.rank} ${r.discipline}`.toLowerCase()
       return hay.includes(query)
     })
   }, [rows, q, statusFilter])
@@ -329,7 +339,9 @@ async function handleApprove(id: number) {
                   setPage(1)
                 }}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                  statusFilter === t.key ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
+                  statusFilter === t.key
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
                 {t.label}
@@ -372,12 +384,11 @@ async function handleApprove(id: number) {
                 <tr>
                   {visibleColumns.map((c) => (
                     <th
-  key={c.key}
-  className="px-4 py-4 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-white whitespace-nowrap border-b border-slate-800"
->
-  {c.label}
-</th>
-
+                      key={c.key}
+                      className="px-4 py-4 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-white whitespace-nowrap border-b border-slate-800"
+                    >
+                      {c.label}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -395,30 +406,69 @@ async function handleApprove(id: number) {
                       {visibleColumns.map((c) => {
                         let val: any = r?.[c.key]
 
+                        // ✅ DOB column
                         if (c.key === "dob") val = formatDOB(r)
 
-                        if (
-                          [
-                            "qualifications",
-                            "vesselTypes",
-                            "shoresideExperience",
-                            "surveyingExperience",
-                            "vesselTypeSurveyingExperience",
-                            "accreditations",
-                            "coursesCompleted",
-                          ].includes(c.key)
-                        ) {
-                          val = joinArr(val)
+                        // ✅ show "Other(text)" on Discipline/Rank main columns
+                        if (c.key === "discipline") {
+                          if (String(r.discipline).toLowerCase() === "other") {
+                            const extra = (r.disciplineOther ?? "").trim()
+                            val = extra ? `Other (${extra})` : "Other"
+                          }
                         }
 
+                        if (c.key === "rank") {
+                          if (String(r.rank).toLowerCase() === "other") {
+                            const extra = (r.rankOther ?? "").trim()
+                            val = extra ? `Other (${extra})` : "Other"
+                          }
+                        }
+
+                        // ✅ Arrays with Other info
+                        if (c.key === "qualifications") {
+                          val = withOther(r.qualifications, r.qualificationsOther)
+                        }
+
+                        if (c.key === "vesselTypes") {
+                          val = withOther(r.vesselTypes, r.vesselTypesOther)
+                        }
+
+                        if (c.key === "shoresideExperience") {
+                          val = withOther(r.shoresideExperience, r.shoresideExperienceOther)
+                        }
+
+                        if (c.key === "surveyingExperience") {
+                          val = withOther(r.surveyingExperience, r.surveyingExperienceOther)
+                        }
+
+                        if (c.key === "vesselTypeSurveyingExperience") {
+                          val = withOther(
+                            r.vesselTypeSurveyingExperience,
+                            r.vesselTypeSurveyingExperienceOther
+                          )
+                        }
+
+                        if (c.key === "accreditations") {
+                          val = withOther(r.accreditations, r.accreditationsOther)
+                        }
+
+                        if (c.key === "coursesCompleted") {
+                          val = withOther(r.coursesCompleted, r.coursesCompletedOther)
+                        }
+
+                        // ✅ Experience mapping
                         if (c.key === "experienceByQualification") {
                           val = formatExperienceByQualification(r?.experienceByQualification)
                         }
 
+                        // ✅ References
                         if (c.key === "references") {
-                          val = r?.references?.length ? r.references.map((x: any) => `${x.name} (${x.contact})`).join(" | ") : "—"
+                          val = r?.references?.length
+                            ? r.references.map((x: any) => `${x.name} (${x.contact})`).join(" | ")
+                            : "—"
                         }
 
+                        // ✅ Photo cell
                         if (c.key === "photoFile") {
                           const url = toFileUrl(r.photoFile)
                           const fname = fileNameFromPath(r.photoFile)
@@ -452,13 +502,6 @@ async function handleApprove(id: number) {
                                       >
                                         Preview
                                       </a>
-                                      {/* <a
-                                        href={url}
-                                        download
-                                        className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800"
-                                      >
-                                        Download
-                                      </a> */}
                                     </div>
                                   </div>
                                 </div>
@@ -467,6 +510,7 @@ async function handleApprove(id: number) {
                           )
                         }
 
+                        // ✅ CV cell
                         if (c.key === "cvFile") {
                           const url = toFileUrl(r.cvFile)
                           const fname = fileNameFromPath(r.cvFile)
@@ -500,13 +544,6 @@ async function handleApprove(id: number) {
                                       >
                                         Open
                                       </a>
-                                      {/* <a
-                                        href={url}
-                                        download
-                                        className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800"
-                                      >
-                                        Download
-                                      </a> */}
                                     </div>
                                   </div>
                                 </div>
@@ -515,82 +552,77 @@ async function handleApprove(id: number) {
                           )
                         }
 
-                       if (c.key === "actions") {
-  const isBusy = busyId === r.id
+                        // ✅ Actions
+                        if (c.key === "actions") {
+                          const isBusy = busyId === r.id
 
-  return (
-    <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
-      {r.reviewed ? (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
-          Reviewed
-        </span>
-      ) : (
-        <button
-          type="button"
-          disabled={isBusy}
-          onClick={() => handleReview(r.id)}
-          className={`
-            px-3 py-1.5 rounded-lg text-xs font-semibold transition
-            ${isBusy ? "bg-slate-300 text-slate-600 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}
-          `}
-        >
-          {isBusy ? "Reviewing..." : "Review"}
-        </button>
-      )}
-    </td>
-  )
-}
+                          return (
+                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
+                              {r.reviewed ? (
+                                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
+                                  Reviewed
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isBusy}
+                                  onClick={() => handleReview(r.id)}
+                                  className={`
+                                    px-3 py-1.5 rounded-lg text-xs font-semibold transition
+                                    ${isBusy ? "bg-slate-300 text-slate-600 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}
+                                  `}
+                                >
+                                  {isBusy ? "Reviewing..." : "Review"}
+                                </button>
+                              )}
+                            </td>
+                          )
+                        }
 
+                        // ✅ marketingConsent boolean
+                        if (c.key === "marketingConsent") {
+                          val = r?.marketingConsent ? "Yes" : "No"
+                        }
 
-// boolean
-if (c.key === "marketingConsent") {
-  val = r?.marketingConsent ? "Yes" : "No"
-}
+                        // ✅ Approve
+                        if (c.key === "approve") {
+                          const isBusy = busyId === r.id
+                          const canApprove = r.reviewed && !r.approved && !isBusy
 
-if (c.key === "approve") {
-  const isBusy = busyId === r.id
-  const canApprove = r.reviewed && !r.approved && !isBusy
+                          return (
+                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
+                              {r.approved ? (
+                                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
+                                  Approved
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={!canApprove}
+                                  onClick={() => handleApprove(r.id)}
+                                  className={`
+                                    px-3 py-1.5 rounded-lg text-xs font-semibold transition
+                                    ${
+                                      canApprove
+                                        ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                    }
+                                  `}
+                                  title={!r.reviewed ? "Please review first" : "Approve"}
+                                >
+                                  {isBusy ? "Approving..." : "Approve"}
+                                </button>
+                              )}
+                            </td>
+                          )
+                        }
 
-  return (
-    <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
-      {r.approved ? (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
-          Approved
-        </span>
-      ) : (
-        <button
-          type="button"
-          disabled={!canApprove}
-          onClick={() => handleApprove(r.id)}
-          className={`
-            px-3 py-1.5 rounded-lg text-xs font-semibold transition
-            ${
-              canApprove
-                ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                : "bg-slate-200 text-slate-400 cursor-not-allowed"
-            }
-          `}
-          title={!r.reviewed ? "Please review first" : "Approve"}
-        >
-          {isBusy ? "Approving..." : "Approve"}
-        </button>
-      )}
-    </td>
-  )
-}
-
-
-
-return (
-  <td
-    key={c.key}
-    className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
-  >
-    {val ? String(val) : "—"}
-  </td>
-)
-
-                        
+                        // default cell
+                        return (
+                          <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
+                            {val ? String(val) : "—"}
+                          </td>
+                        )
                       })}
                     </tr>
                   ))
@@ -623,10 +655,6 @@ return (
             </button>
           </div>
         </div>
-
-        {/* <p className="text-xs text-slate-500 mt-4">
-          API: using <span className="font-medium">GET /api/form/records</span>
-        </p> */}
       </div>
     </AdminLayout>
   )

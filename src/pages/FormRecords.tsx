@@ -50,7 +50,10 @@ const COLUMNS = [
   { key: "surveyingExperienceOther", label: "Surveying (Other)" },
 
   { key: "vesselTypeSurveyingExperience", label: "Vessel Type Surveying Exp" },
-  { key: "vesselTypeSurveyingExperienceOther", label: "Vessel Type Surveying (Other)" },
+  {
+    key: "vesselTypeSurveyingExperienceOther",
+    label: "Vessel Type Surveying (Other)",
+  },
 
   { key: "accreditations", label: "Accreditations" },
   { key: "accreditationsOther", label: "Accreditations (Other)" },
@@ -109,9 +112,9 @@ function normalizeRecord(r: any) {
     yearStarted: r.year_started ?? "",
     heardAbout: r.heard_about ?? "",
 
-    // NOTE: if your backend returns snake_case here, keep these as you have them
-    street1: r.street1 ?? r.street1 ?? "",
-    street2: r.street2 ?? r.street2 ?? "",
+    // address (your API returns these as street1/street2 based on your model)
+    street1: r.street1 ?? "",
+    street2: r.street2 ?? "",
     city: r.city ?? "",
     postalCode: r.postal_code ?? "",
     country: r.country ?? "",
@@ -146,7 +149,8 @@ function normalizeRecord(r: any) {
     vesselTypesOther: r.vessel_types_other ?? "",
     shoresideExperienceOther: r.shoreside_experience_other ?? "",
     surveyingExperienceOther: r.surveying_experience_other ?? "",
-    vesselTypeSurveyingExperienceOther: r.vessel_type_surveying_experience_other ?? "",
+    vesselTypeSurveyingExperienceOther:
+      r.vessel_type_surveying_experience_other ?? "",
     accreditationsOther: r.accreditations_other ?? "",
     coursesCompletedOther: r.courses_completed_other ?? "",
 
@@ -159,12 +163,9 @@ function normalizeRecord(r: any) {
   }
 }
 
-const joinArr = (v: any) => (Array.isArray(v) ? v.join(", ") : v || "—")
-
 // ✅ IMPORTANT: show "Other (text)" when array includes Other
 const withOther = (arr: any, otherText?: string) => {
   const list = Array.isArray(arr) ? arr : []
-
   const hasOther = list.includes("Other") || list.includes("other")
   const cleaned = list.filter((x) => x !== "Other" && x !== "other")
 
@@ -222,7 +223,9 @@ export default function FormRecords() {
     try {
       setBusyId(id)
       await markReviewed(id)
-      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x)))
+      setRows((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x))
+      )
     } finally {
       setBusyId(null)
     }
@@ -232,7 +235,9 @@ export default function FormRecords() {
     try {
       setBusyId(id)
       await approveForm(id)
-      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, approved: true } : x)))
+      setRows((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, approved: true } : x))
+      )
     } finally {
       setBusyId(null)
     }
@@ -362,7 +367,9 @@ export default function FormRecords() {
               className="w-full h-12 rounded-xl bg-white border border-slate-200 px-11 pr-4 outline-none focus:ring-4 focus:ring-slate-200 transition text-base"
               placeholder="Search name, email, company, rank, discipline..."
             />
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">🔎</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+              🔎
+            </span>
           </div>
         </div>
 
@@ -370,11 +377,15 @@ export default function FormRecords() {
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <p className="text-sm text-slate-600">
-              Showing <span className="font-semibold text-slate-900">{paged.length}</span> of{" "}
+              Showing{" "}
+              <span className="font-semibold text-slate-900">{paged.length}</span>{" "}
+              of{" "}
               <span className="font-semibold text-slate-900">{filtered.length}</span>
             </p>
             <p className="text-sm text-slate-500">
-              Page <span className="font-semibold text-slate-900">{safePage}</span> / {totalPages}
+              Page{" "}
+              <span className="font-semibold text-slate-900">{safePage}</span> /{" "}
+              {totalPages}
             </p>
           </div>
 
@@ -396,7 +407,10 @@ export default function FormRecords() {
               <tbody>
                 {paged.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-slate-600">
+                    <td
+                      colSpan={visibleColumns.length}
+                      className="px-4 py-10 text-center text-slate-600"
+                    >
                       No records found.
                     </td>
                   </tr>
@@ -424,7 +438,7 @@ export default function FormRecords() {
                           }
                         }
 
-                        // ✅ Arrays with Other info
+                        // ✅ Arrays with Other info (main columns)
                         if (c.key === "qualifications") {
                           val = withOther(r.qualifications, r.qualificationsOther)
                         }
@@ -434,11 +448,17 @@ export default function FormRecords() {
                         }
 
                         if (c.key === "shoresideExperience") {
-                          val = withOther(r.shoresideExperience, r.shoresideExperienceOther)
+                          val = withOther(
+                            r.shoresideExperience,
+                            r.shoresideExperienceOther
+                          )
                         }
 
                         if (c.key === "surveyingExperience") {
-                          val = withOther(r.surveyingExperience, r.surveyingExperienceOther)
+                          val = withOther(
+                            r.surveyingExperience,
+                            r.surveyingExperienceOther
+                          )
                         }
 
                         if (c.key === "vesselTypeSurveyingExperience") {
@@ -453,18 +473,25 @@ export default function FormRecords() {
                         }
 
                         if (c.key === "coursesCompleted") {
-                          val = withOther(r.coursesCompleted, r.coursesCompletedOther)
+                          val = withOther(
+                            r.coursesCompleted,
+                            r.coursesCompletedOther
+                          )
                         }
 
                         // ✅ Experience mapping
                         if (c.key === "experienceByQualification") {
-                          val = formatExperienceByQualification(r?.experienceByQualification)
+                          val = formatExperienceByQualification(
+                            r?.experienceByQualification
+                          )
                         }
 
                         // ✅ References
                         if (c.key === "references") {
                           val = r?.references?.length
-                            ? r.references.map((x: any) => `${x.name} (${x.contact})`).join(" | ")
+                            ? r.references
+                                .map((x: any) => `${x.name} (${x.contact})`)
+                                .join(" | ")
                             : "—"
                         }
 
@@ -474,12 +501,21 @@ export default function FormRecords() {
                           const fname = fileNameFromPath(r.photoFile)
 
                           return (
-                            <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
+                            <td
+                              key={c.key}
+                              className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
+                            >
                               {!url ? (
                                 "—"
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[220px]">
-                                  <a href={url} target="_blank" rel="noreferrer" className="group" title="Open photo">
+                                  <a
+                                    href={url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="group"
+                                    title="Open photo"
+                                  >
                                     <img
                                       src={url}
                                       alt="Uploaded"
@@ -516,7 +552,10 @@ export default function FormRecords() {
                           const fname = fileNameFromPath(r.cvFile)
 
                           return (
-                            <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
+                            <td
+                              key={c.key}
+                              className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
+                            >
                               {!url ? (
                                 "—"
                               ) : (
@@ -557,7 +596,10 @@ export default function FormRecords() {
                           const isBusy = busyId === r.id
 
                           return (
-                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
+                            <td
+                              key={c.key}
+                              className="px-4 py-4 align-top text-left border-b border-slate-200"
+                            >
                               {r.reviewed ? (
                                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
                                   Reviewed
@@ -569,7 +611,11 @@ export default function FormRecords() {
                                   onClick={() => handleReview(r.id)}
                                   className={`
                                     px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                                    ${isBusy ? "bg-slate-300 text-slate-600 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"}
+                                    ${
+                                      isBusy
+                                        ? "bg-slate-300 text-slate-600 cursor-not-allowed"
+                                        : "bg-slate-900 text-white hover:bg-slate-800"
+                                    }
                                   `}
                                 >
                                   {isBusy ? "Reviewing..." : "Review"}
@@ -590,7 +636,10 @@ export default function FormRecords() {
                           const canApprove = r.reviewed && !r.approved && !isBusy
 
                           return (
-                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
+                            <td
+                              key={c.key}
+                              className="px-4 py-4 align-top text-left border-b border-slate-200"
+                            >
                               {r.approved ? (
                                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
                                   Approved
@@ -619,7 +668,10 @@ export default function FormRecords() {
 
                         // default cell
                         return (
-                          <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
+                          <td
+                            key={c.key}
+                            className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
+                          >
                             {val ? String(val) : "—"}
                           </td>
                         )

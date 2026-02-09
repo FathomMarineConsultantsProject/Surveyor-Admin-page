@@ -25,35 +25,21 @@ const COLUMNS = [
   { key: "stateRegion", label: "State/Region" },
 
   { key: "discipline", label: "Discipline" },
-  { key: "disciplineOther", label: "Discipline (Other)" },
   { key: "rank", label: "Rank" },
-  { key: "rankOther", label: "Rank (Other)" },
 
   { key: "qualifications", label: "Qualifications" },
-  { key: "qualificationsOther", label: "Qualifications (Other)" },
-
   { key: "experienceByQualification", label: "Experience By Qualification" },
 
   { key: "vesselTypes", label: "Vessel Types" },
-  { key: "vesselTypesOther", label: "Vessel Types (Other)" },
-
   { key: "shoresideExperience", label: "Shoreside Experience" },
-  { key: "shoresideExperienceOther", label: "Shoreside (Other)" },
-
   { key: "surveyingExperience", label: "Surveying Experience" },
-  { key: "surveyingExperienceOther", label: "Surveying (Other)" },
-
   { key: "vesselTypeSurveyingExperience", label: "Vessel Type Surveying Exp" },
-  { key: "vesselTypeSurveyingExperienceOther", label: "Vessel Type Surveying (Other)" },
 
   { key: "accreditations", label: "Accreditations" },
-  { key: "accreditationsOther", label: "Accreditations (Other)" },
   { key: "coursesCompleted", label: "Courses Completed" },
-  { key: "coursesCompletedOther", label: "Courses Completed (Other)" },
 
   { key: "references", label: "References" },
 
-  // These are "slots" in UI; we will render S3 view links/buttons here:
   { key: "cvFile", label: "CV" },
   { key: "photoFile", label: "Photo" },
 
@@ -64,29 +50,6 @@ const COLUMNS = [
   { key: "approve", label: "Approve" },
   { key: "delete", label: "Delete" },
 ];
-
-const OTHER_KEYS = new Set([
-  "disciplineOther",
-  "rankOther",
-  "qualificationsOther",
-  "vesselTypesOther",
-  "shoresideExperienceOther",
-  "surveyingExperienceOther",
-  "vesselTypeSurveyingExperienceOther",
-  "accreditationsOther",
-  "coursesCompletedOther",
-]);
-
-function hasAnyValue(allRows: any[], key: string) {
-  return allRows.some((r) => {
-    const v = r?.[key];
-    if (v === null || v === undefined) return false;
-    if (typeof v === "string") return v.trim().length > 0;
-    if (Array.isArray(v)) return v.length > 0;
-    if (typeof v === "object") return Object.keys(v).length > 0;
-    return Boolean(v);
-  });
-}
 
 function normalizeRecord(r: any) {
   return {
@@ -129,7 +92,7 @@ function normalizeRecord(r: any) {
 
     references: r.refs ?? [],
 
-    // ✅ ONLY NEW RECORDS (S3)
+    // ✅ NEW RECORDS ONLY (S3)
     photoS3Key: r.photo_s3_key ?? null,
     cvS3Key: r.cv_s3_key ?? null,
 
@@ -155,7 +118,7 @@ function normalizeRecord(r: any) {
   };
 }
 
-// ✅ show "Other (text)" when array includes Other
+// ✅ show "Other (text)" only ONCE
 const withOther = (arr: any, otherText?: string) => {
   const list = Array.isArray(arr) ? arr : [];
   const hasOther = list.includes("Other") || list.includes("other");
@@ -183,9 +146,9 @@ const formatExperienceByQualification = (obj: any) => {
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
-function getAdminToken() {
-  return localStorage.getItem("admin_token") || sessionStorage.getItem("admin_token") || "";
-}
+// ✅ Option B: Stream URL (cookie auth). No expiry.
+const toStreamUrl = (key: string) =>
+  `${API_BASE}/api/files/stream?key=${encodeURIComponent(key)}`;
 
 const fileNameFromPath = (p: string) => (p ? p.split("/").pop() || p : "");
 const clipMiddle = (s = "", head = 18, tail = 10) => {
@@ -193,18 +156,6 @@ const clipMiddle = (s = "", head = 18, tail = 10) => {
   if (s.length <= head + tail + 3) return s;
   return `${s.slice(0, head)}...${s.slice(-tail)}`;
 };
-
-async function getPresignedViewUrl(key: string): Promise<string> {
-  const token = getAdminToken();
-
-  const res = await fetch(`${API_BASE}/api/files/view?key=${encodeURIComponent(key)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  if (!res.ok) throw new Error("Failed to get view url");
-  const data = await res.json().catch(() => ({}));
-  return data.url || "";
-}
 
 export default function FormRecords() {
   const [rows, setRows] = useState<any[]>([]);
@@ -216,21 +167,6 @@ export default function FormRecords() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reviewed">("pending");
   const pageSize = 8;
-
-  // Cache for presigned URLs (key -> url)
-  const [viewUrlCache, setViewUrlCache] = useState<Record<string, string>>({});
-
-  async function ensureCachedUrl(key: string) {
-    if (!key) return;
-    if (viewUrlCache[key]) return;
-
-    try {
-      const url = await getPresignedViewUrl(key);
-      setViewUrlCache((prev) => ({ ...prev, [key]: url }));
-    } catch {
-      // ignore for now
-    }
-  }
 
   async function handleReview(id: number) {
     try {
@@ -258,7 +194,7 @@ export default function FormRecords() {
 
     try {
       setBusyId(id);
-      await deleteForm(id); // ✅ make sure services/api.ts uses /api/form/:id and admin_token
+      await deleteForm(id);
       setRows((prev) => prev.filter((x) => x.id !== id));
     } finally {
       setBusyId(null);
@@ -275,7 +211,11 @@ export default function FormRecords() {
 
         const res = await getFormRecords();
         const list = res?.data || [];
-        const normalized = list.map(normalizeRecord);
+
+        // ✅ ignore old records: only show rows where S3 keys exist
+        const onlyNew = list.filter((r: any) => r.photo_s3_key && r.cv_s3_key);
+
+        const normalized = onlyNew.map(normalizeRecord);
         if (mounted) setRows(normalized);
       } catch (e: any) {
         if (mounted) setApiError(e?.message || "Failed to load records");
@@ -288,13 +228,6 @@ export default function FormRecords() {
       mounted = false;
     };
   }, []);
-
-  const visibleColumns = useMemo(() => {
-    return COLUMNS.filter((col) => {
-      if (OTHER_KEYS.has(col.key)) return hasAnyValue(rows, col.key);
-      return true;
-    });
-  }, [rows]);
 
   const filtered = useMemo(() => {
     let base = rows;
@@ -317,20 +250,6 @@ export default function FormRecords() {
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
-
-  // Prefetch presigned URLs for visible page (S3 keys only)
-  useEffect(() => {
-    const keys = new Set<string>();
-    for (const r of paged) {
-      if (r.photoS3Key) keys.add(r.photoS3Key);
-      if (r.cvS3Key) keys.add(r.cvS3Key);
-    }
-
-    keys.forEach((k) => {
-      if (!viewUrlCache[k]) ensureCachedUrl(k);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paged]);
 
   if (loading) {
     return (
@@ -420,7 +339,7 @@ export default function FormRecords() {
             <table className="min-w-[2600px] w-full">
               <thead className="bg-slate-900">
                 <tr>
-                  {visibleColumns.map((c) => (
+                  {COLUMNS.map((c) => (
                     <th
                       key={c.key}
                       className="px-4 py-4 text-left align-middle text-[11px] font-semibold uppercase tracking-wider text-white whitespace-nowrap border-b border-slate-800"
@@ -434,14 +353,14 @@ export default function FormRecords() {
               <tbody>
                 {paged.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-slate-600">
+                    <td colSpan={COLUMNS.length} className="px-4 py-10 text-center text-slate-600">
                       No records found.
                     </td>
                   </tr>
                 ) : (
                   paged.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50 transition align-top">
-                      {visibleColumns.map((c) => {
+                      {COLUMNS.map((c) => {
                         let val: any = r?.[c.key];
 
                         if (c.key === "dob") val = formatDOB(r);
@@ -477,18 +396,16 @@ export default function FormRecords() {
                             : "—";
                         }
 
-                        // ✅ PHOTO (S3 ONLY; ignore legacy)
+                        // ✅ PHOTO via stream
                         if (c.key === "photoFile") {
                           const s3Key = r.photoS3Key as string | null;
-                          const url = s3Key ? viewUrlCache[s3Key] : "";
+                          const url = s3Key ? toStreamUrl(s3Key) : "";
                           const fname = s3Key ? fileNameFromPath(s3Key) : "";
 
                           return (
                             <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
                               {!s3Key ? (
                                 "—"
-                              ) : !url ? (
-                                <span className="text-slate-500 text-xs">Loading...</span>
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[220px]">
                                   <a href={url} target="_blank" rel="noreferrer" className="group" title="Open photo">
@@ -522,18 +439,16 @@ export default function FormRecords() {
                           );
                         }
 
-                        // ✅ CV (S3 ONLY; ignore legacy)
+                        // ✅ CV via stream
                         if (c.key === "cvFile") {
                           const s3Key = r.cvS3Key as string | null;
-                          const url = s3Key ? viewUrlCache[s3Key] : "";
+                          const url = s3Key ? toStreamUrl(s3Key) : "";
                           const fname = s3Key ? fileNameFromPath(s3Key) : "";
 
                           return (
                             <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
                               {!s3Key ? (
                                 "—"
-                              ) : !url ? (
-                                <span className="text-slate-500 text-xs">Loading...</span>
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[320px]">
                                   <div className="h-10 w-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700 text-xs font-bold">
@@ -640,9 +555,7 @@ export default function FormRecords() {
                                 disabled={isBusy}
                                 onClick={() => handleDelete(r.id)}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                  isBusy
-                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                                    : "bg-red-600 text-white hover:bg-red-700"
+                                  isBusy ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-red-600 text-white hover:bg-red-700"
                                 }`}
                               >
                                 {isBusy ? "Deleting..." : "Delete"}

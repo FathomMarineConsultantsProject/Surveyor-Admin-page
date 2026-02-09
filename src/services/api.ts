@@ -1,82 +1,53 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app";
-
-function authHeaders(): HeadersInit {
-  const token =
-    localStorage.getItem("admin_token") ||
-    sessionStorage.getItem("admin_token")
-
-  if (!token) return {}
-
-  return {
-    Authorization: `Bearer ${token}`,
-  }
-}
-
+const BASE_URL =
+  (import.meta.env.VITE_API_URL ||
+    "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app").replace(/\/+$/, "");
 
 async function safeJson(res: Response) {
   try {
-    return await res.json()
+    return await res.json();
   } catch {
-    return null
+    return null;
   }
 }
 
-/* ---------------------------
-   GET
----------------------------- */
 export async function apiGet(url: string) {
-  const endpoint = url.startsWith('/') ? url : `/${url}`;
+  const endpoint = url.startsWith("/") ? url : `/${url}`;
   const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: new Headers({
-      Accept: "application/json",
-      ...(authHeaders() as Record<string, string>),
-    }),
-  })
+    method: "GET",
+    credentials: "include", // ✅ cookie sent
+    headers: { Accept: "application/json" },
+  });
 
-  const data = await safeJson(res)
-
-  if (!res.ok) {
-    throw new Error(data?.message || `GET ${url} failed (${res.status})`)
-  }
-
-  return data
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.message || `GET ${url} failed (${res.status})`);
+  return data;
 }
 
-
-/* ---------------------------
-   PATCH
----------------------------- */
 export async function apiPatch(url: string, body?: unknown) {
-  const endpoint = url.startsWith('/') ? url : `/${url}`;
+  const endpoint = url.startsWith("/") ? url : `/${url}`;
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "PATCH",
-    headers: new Headers({
+    credentials: "include",
+    headers: {
       "Content-Type": "application/json",
-      ...(authHeaders() as Record<string, string>),
-    }),
+      Accept: "application/json",
+    },
     body: JSON.stringify(body ?? {}),
-  })
+  });
 
-  const data = await safeJson(res)
-
-  if (!res.ok) throw new Error(data?.message || "Request failed")
-
-  return data
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.message || "Request failed");
+  return data;
 }
 
 export async function deleteForm(id: number) {
   const res = await fetch(`${BASE_URL}/api/form/${id}`, {
     method: "DELETE",
-    headers: new Headers({
-      Accept: "application/json",
-      ...(authHeaders() as Record<string, string>),
-    }),
+    credentials: "include",
+    headers: { Accept: "application/json" },
   });
 
-  const data = await res.json().catch(() => ({}));
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data?.message || "Delete failed");
   return data;
 }
-
-
-

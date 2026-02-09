@@ -18,36 +18,25 @@ export default function AdminLogin() {
       setLoading(true)
       setErr("")
 
-      const base = import.meta.env.VITE_API_URL || "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app"
+      const base =
+        import.meta.env.VITE_API_URL ||
+        "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app"
 
       const res = await fetch(`${base}/api/admin/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, remember }),
+        credentials: "include", // ✅ cookie
       })
 
       const data = await res.json()
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Login failed")
-      }
-
-      const token = data?.data?.token
-      if (!token) throw new Error("Token missing in response")
-
-      // Store token
-      if (remember) localStorage.setItem("admin_token", token)
-      else sessionStorage.setItem("admin_token", token)
+      if (!res.ok) throw new Error(data?.message || "Login failed")
 
       navigate("/admin")
     } catch (e: unknown) {
       console.error("Login Error:", e)
-      
-      if (e instanceof Error) {
-        setErr(e.message)
-      } else {
-        setErr("Login failed. Please check your connection.")
-      }
+      setErr(e instanceof Error ? e.message : "Login failed. Please check your connection.")
     } finally {
       setLoading(false)
     }
@@ -93,11 +82,7 @@ export default function AdminLogin() {
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-            />
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
             Remember me
           </label>
 

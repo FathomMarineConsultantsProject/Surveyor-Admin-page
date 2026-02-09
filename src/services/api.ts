@@ -64,3 +64,17 @@ export async function apiPatch(url: string, body?: unknown) {
   return data
 }
 
+export async function deleteForm(id: number, token?: string) {
+  const res = await fetch(`${import.meta.env.VITE_API_URL}/forms/${id}`, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Delete failed");
+  return data;
+}
+
+

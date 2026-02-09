@@ -1,13 +1,7 @@
-import { useEffect, useMemo, useState } from "react"
-import AdminLayout from "../layout/AdminLayout"
-import { getFormRecords, markReviewed, approveForm } from "../services/records.api"
-
-/*
-  FORM RECORDS (API + UI)
-  - Pending / All / Reviewed tabs
-  - Review button marks reviewed=true and disappears from Pending
-  - Hide (Other) columns unless any record uses it
-*/
+import { useEffect, useMemo, useState } from "react";
+import AdminLayout from "../layout/AdminLayout";
+import { getFormRecords, markReviewed, approveForm } from "../services/records.api";
+import { deleteForm } from "../services/api";
 
 const COLUMNS = [
   { key: "firstName", label: "First Name" },
@@ -50,10 +44,7 @@ const COLUMNS = [
   { key: "surveyingExperienceOther", label: "Surveying (Other)" },
 
   { key: "vesselTypeSurveyingExperience", label: "Vessel Type Surveying Exp" },
-  {
-    key: "vesselTypeSurveyingExperienceOther",
-    label: "Vessel Type Surveying (Other)",
-  },
+  { key: "vesselTypeSurveyingExperienceOther", label: "Vessel Type Surveying (Other)" },
 
   { key: "accreditations", label: "Accreditations" },
   { key: "accreditationsOther", label: "Accreditations (Other)" },
@@ -64,12 +55,14 @@ const COLUMNS = [
 
   { key: "cvFile", label: "CV" },
   { key: "photoFile", label: "Photo" },
+
   { key: "inspectionCost", label: "Inspection Cost" },
   { key: "marketingConsent", label: "Marketing Consent" },
 
   { key: "actions", label: "Actions" },
   { key: "approve", label: "Approve" },
-]
+  { key: "delete", label: "Delete" },
+];
 
 const OTHER_KEYS = new Set([
   "disciplineOther",
@@ -81,17 +74,17 @@ const OTHER_KEYS = new Set([
   "vesselTypeSurveyingExperienceOther",
   "accreditationsOther",
   "coursesCompletedOther",
-])
+]);
 
 function hasAnyValue(allRows: any[], key: string) {
   return allRows.some((r) => {
-    const v = r?.[key]
-    if (v === null || v === undefined) return false
-    if (typeof v === "string") return v.trim().length > 0
-    if (Array.isArray(v)) return v.length > 0
-    if (typeof v === "object") return Object.keys(v).length > 0
-    return Boolean(v)
-  })
+    const v = r?.[key];
+    if (v === null || v === undefined) return false;
+    if (typeof v === "string") return v.trim().length > 0;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "object") return Object.keys(v).length > 0;
+    return Boolean(v);
+  });
 }
 
 function normalizeRecord(r: any) {
@@ -112,7 +105,6 @@ function normalizeRecord(r: any) {
     yearStarted: r.year_started ?? "",
     heardAbout: r.heard_about ?? "",
 
-    // address (your API returns these as street1/street2 based on your model)
     street1: r.street1 ?? "",
     street2: r.street2 ?? "",
     city: r.city ?? "",
@@ -136,21 +128,24 @@ function normalizeRecord(r: any) {
 
     references: r.refs ?? [],
 
-    photoFile: r.photo_path ?? null,
-    cvFile: r.cv_path ?? null,
+    // ✅ Legacy (local uploads)
+    photoPath: r.photo_path ?? null,
+    cvPath: r.cv_path ?? null,
+
+    // ✅ New S3 keys
+    photoS3Key: r.photo_s3_key ?? null,
+    cvS3Key: r.cv_s3_key ?? null,
 
     inspectionCost: r.inspection_cost ?? "",
     marketingConsent: !!r.marketing_consent,
 
-    // ✅ Other fields (snake_case from DB)
     disciplineOther: r.discipline_other ?? "",
     rankOther: r.rank_other ?? "",
     qualificationsOther: r.qualifications_other ?? "",
     vesselTypesOther: r.vessel_types_other ?? "",
     shoresideExperienceOther: r.shoreside_experience_other ?? "",
     surveyingExperienceOther: r.surveying_experience_other ?? "",
-    vesselTypeSurveyingExperienceOther:
-      r.vessel_type_surveying_experience_other ?? "",
+    vesselTypeSurveyingExperienceOther: r.vessel_type_surveying_experience_other ?? "",
     accreditationsOther: r.accreditations_other ?? "",
     coursesCompletedOther: r.courses_completed_other ?? "",
 
@@ -160,138 +155,175 @@ function normalizeRecord(r: any) {
 
     approved: !!(r.approved ?? r.is_approved),
     approvedAt: r.approvedAt ?? r.approved_at ?? null,
-  }
+  };
 }
 
-// ✅ IMPORTANT: show "Other (text)" when array includes Other
 const withOther = (arr: any, otherText?: string) => {
-  const list = Array.isArray(arr) ? arr : []
-  const hasOther = list.includes("Other") || list.includes("other")
-  const cleaned = list.filter((x) => x !== "Other" && x !== "other")
+  const list = Array.isArray(arr) ? arr : [];
+  const hasOther = list.includes("Other") || list.includes("other");
+  const cleaned = list.filter((x) => x !== "Other" && x !== "other");
 
-  if (!hasOther) return cleaned.length ? cleaned.join(", ") : "—"
+  if (!hasOther) return cleaned.length ? cleaned.join(", ") : "—";
 
-  const extra = (otherText ?? "").trim()
-  if (!extra) return [...cleaned, "Other"].filter(Boolean).join(", ")
+  const extra = (otherText ?? "").trim();
+  if (!extra) return [...cleaned, "Other"].filter(Boolean).join(", ");
 
-  return [...cleaned, `Other (${extra})`].filter(Boolean).join(", ")
-}
+  return [...cleaned, `Other (${extra})`].filter(Boolean).join(", ");
+};
 
 const formatDOB = (r: any) => {
-  if (!r?.dobDD && !r?.dobMM && !r?.dobYYYY) return "—"
-  return `${r.dobDD || "—"}/${r.dobMM || "—"}/${r.dobYYYY || "—"}`
-}
+  if (!r?.dobDD && !r?.dobMM && !r?.dobYYYY) return "—";
+  return `${r.dobDD || "—"}/${r.dobMM || "—"}/${r.dobYYYY || "—"}`;
+};
 
 const formatExperienceByQualification = (obj: any) => {
-  if (!obj || typeof obj !== "object") return "—"
-  const entries = Object.entries(obj)
-  if (!entries.length) return "—"
-  return entries
-    .map(([k, t]: any) => `${k}: ${t.years}y ${t.months}m ${t.days}d`)
-    .join(" | ")
-}
+  if (!obj || typeof obj !== "object") return "—";
+  const entries = Object.entries(obj);
+  if (!entries.length) return "—";
+  return entries.map(([k, t]: any) => `${k}: ${t.years}y ${t.months}m ${t.days}d`).join(" | ");
+};
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000"
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-const toFileUrl = (p: string) => {
-  if (!p) return ""
-  if (p.startsWith("http://") || p.startsWith("https://")) return p
-  return `${API_BASE}/${p.replace(/^\/+/, "")}`
-}
+const toLegacyFileUrl = (p: string) => {
+  if (!p) return "";
+  if (p.startsWith("http://") || p.startsWith("https://")) return p;
+  return `${API_BASE}/${p.replace(/^\/+/, "")}`;
+};
 
-const fileNameFromPath = (p: string) => (p ? p.split("/").pop() || p : "")
+const fileNameFromPath = (p: string) => (p ? p.split("/").pop() || p : "");
 
 const clipMiddle = (s = "", head = 18, tail = 10) => {
-  if (!s) return ""
-  if (s.length <= head + tail + 3) return s
-  return `${s.slice(0, head)}...${s.slice(-tail)}`
+  if (!s) return "";
+  if (s.length <= head + tail + 3) return s;
+  return `${s.slice(0, head)}...${s.slice(-tail)}`;
+};
+
+async function getPresignedViewUrl(key: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/files/view?key=${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error("Failed to get view url");
+  const data = await res.json();
+  return data.url;
 }
 
 export default function FormRecords() {
-  const [rows, setRows] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [apiError, setApiError] = useState("")
-  const [busyId, setBusyId] = useState<number | null>(null)
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  const [q, setQ] = useState("")
-  const [page, setPage] = useState(1)
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reviewed">("pending")
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reviewed">("pending");
+  const pageSize = 8;
 
-  const pageSize = 8
+  // Cache for presigned URLs so we don’t refetch endlessly
+  const [viewUrlCache, setViewUrlCache] = useState<Record<string, string>>({});
+
+  async function ensureCachedUrl(key: string) {
+    if (!key) return;
+    if (viewUrlCache[key]) return;
+    try {
+      const url = await getPresignedViewUrl(key);
+      setViewUrlCache((prev) => ({ ...prev, [key]: url }));
+    } catch {
+      // ignore
+    }
+  }
 
   async function handleReview(id: number) {
     try {
-      setBusyId(id)
-      await markReviewed(id)
-      setRows((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x))
-      )
+      setBusyId(id);
+      await markReviewed(id);
+      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, reviewed: true } : x)));
     } finally {
-      setBusyId(null)
+      setBusyId(null);
     }
   }
 
   async function handleApprove(id: number) {
     try {
-      setBusyId(id)
-      await approveForm(id)
-      setRows((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, approved: true } : x))
-      )
+      setBusyId(id);
+      await approveForm(id);
+      setRows((prev) => prev.map((x) => (x.id === id ? { ...x, approved: true } : x)));
     } finally {
-      setBusyId(null)
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(id: number) {
+    const ok = window.confirm("Delete this record permanently?");
+    if (!ok) return;
+
+    try {
+      setBusyId(id);
+      await deleteForm(id, localStorage.getItem("token") || "");
+      setRows((prev) => prev.filter((x) => x.id !== id));
+    } finally {
+      setBusyId(null);
     }
   }
 
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
+    let mounted = true;
+    (async () => {
       try {
-        setLoading(true)
-        setApiError("")
-        const res = await getFormRecords()
-        const list = res?.data || []
-        const normalized = list.map(normalizeRecord)
-        if (mounted) setRows(normalized)
+        setLoading(true);
+        setApiError("");
+        const res = await getFormRecords();
+        const list = res?.data || [];
+        const normalized = list.map(normalizeRecord);
+        if (mounted) setRows(normalized);
       } catch (e: any) {
-        if (mounted) setApiError(e?.message || "Failed to load records")
+        if (mounted) setApiError(e?.message || "Failed to load records");
       } finally {
-        if (mounted) setLoading(false)
+        if (mounted) setLoading(false);
       }
-    })()
+    })();
     return () => {
-      mounted = false
-    }
-  }, [])
+      mounted = false;
+    };
+  }, []);
 
   const visibleColumns = useMemo(() => {
     return COLUMNS.filter((col) => {
-      if (OTHER_KEYS.has(col.key)) return hasAnyValue(rows, col.key)
-      return true
-    })
-  }, [rows])
+      if (OTHER_KEYS.has(col.key)) return hasAnyValue(rows, col.key);
+      return true;
+    });
+  }, [rows]);
 
   const filtered = useMemo(() => {
-    let base = rows
-    if (statusFilter === "pending") base = base.filter((r) => !r.reviewed)
-    if (statusFilter === "reviewed") base = base.filter((r) => r.reviewed)
+    let base = rows;
+    if (statusFilter === "pending") base = base.filter((r) => !r.reviewed);
+    if (statusFilter === "reviewed") base = base.filter((r) => r.reviewed);
 
-    const query = q.trim().toLowerCase()
-    if (!query) return base
+    const query = q.trim().toLowerCase();
+    if (!query) return base;
 
     return base.filter((r) => {
-      const hay = `${r.firstName} ${r.lastName} ${r.email} ${r.mobileNumber} ${r.companyName} ${r.rank} ${r.discipline}`.toLowerCase()
-      return hay.includes(query)
-    })
-  }, [rows, q, statusFilter])
+      const hay = `${r.firstName} ${r.lastName} ${r.email} ${r.mobileNumber} ${r.companyName} ${r.rank} ${r.discipline}`.toLowerCase();
+      return hay.includes(query);
+    });
+  }, [rows, q, statusFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const safePage = Math.min(page, totalPages)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
 
   const paged = useMemo(() => {
-    const start = (safePage - 1) * pageSize
-    return filtered.slice(start, start + pageSize)
-  }, [filtered, safePage])
+    const start = (safePage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, safePage]);
+
+  // Prefetch presigned URLs for visible rows (photo + cv)
+  useEffect(() => {
+    (async () => {
+      for (const r of paged) {
+        if (r.photoS3Key) await ensureCachedUrl(r.photoS3Key);
+        if (r.cvS3Key) await ensureCachedUrl(r.cvS3Key);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paged]);
 
   if (loading) {
     return (
@@ -301,7 +333,7 @@ export default function FormRecords() {
           <p className="text-slate-600 mt-2 text-base">Loading records...</p>
         </div>
       </AdminLayout>
-    )
+    );
   }
 
   if (apiError) {
@@ -309,12 +341,10 @@ export default function FormRecords() {
       <AdminLayout>
         <div className="text-slate-900">
           <h2 className="text-2xl font-semibold tracking-tight">Form Records</h2>
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-            {apiError}
-          </div>
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{apiError}</div>
         </div>
       </AdminLayout>
-    )
+    );
   }
 
   return (
@@ -323,9 +353,7 @@ export default function FormRecords() {
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Form Records</h2>
-            <p className="text-slate-600 mt-2 text-base max-w-2xl">
-              Review submissions and manage pending items.
-            </p>
+            <p className="text-slate-600 mt-2 text-base max-w-2xl">Review submissions and manage pending items.</p>
           </div>
         </div>
 
@@ -340,13 +368,11 @@ export default function FormRecords() {
               <button
                 key={t.key}
                 onClick={() => {
-                  setStatusFilter(t.key)
-                  setPage(1)
+                  setStatusFilter(t.key);
+                  setPage(1);
                 }}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                  statusFilter === t.key
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-50"
+                  statusFilter === t.key ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
                 {t.label}
@@ -361,15 +387,13 @@ export default function FormRecords() {
             <input
               value={q}
               onChange={(e) => {
-                setQ(e.target.value)
-                setPage(1)
+                setQ(e.target.value);
+                setPage(1);
               }}
               className="w-full h-12 rounded-xl bg-white border border-slate-200 px-11 pr-4 outline-none focus:ring-4 focus:ring-slate-200 transition text-base"
               placeholder="Search name, email, company, rank, discipline..."
             />
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-              🔎
-            </span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">🔎</span>
           </div>
         </div>
 
@@ -377,15 +401,11 @@ export default function FormRecords() {
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
           <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <p className="text-sm text-slate-600">
-              Showing{" "}
-              <span className="font-semibold text-slate-900">{paged.length}</span>{" "}
-              of{" "}
+              Showing <span className="font-semibold text-slate-900">{paged.length}</span> of{" "}
               <span className="font-semibold text-slate-900">{filtered.length}</span>
             </p>
             <p className="text-sm text-slate-500">
-              Page{" "}
-              <span className="font-semibold text-slate-900">{safePage}</span> /{" "}
-              {totalPages}
+              Page <span className="font-semibold text-slate-900">{safePage}</span> / {totalPages}
             </p>
           </div>
 
@@ -407,115 +427,64 @@ export default function FormRecords() {
               <tbody>
                 {paged.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={visibleColumns.length}
-                      className="px-4 py-10 text-center text-slate-600"
-                    >
+                    <td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-slate-600">
                       No records found.
                     </td>
                   </tr>
                 ) : (
-                  paged.map((r, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 transition align-top">
+                  paged.map((r) => (
+                    <tr key={r.id} className="hover:bg-slate-50 transition align-top">
                       {visibleColumns.map((c) => {
-                        let val: any = r?.[c.key]
+                        let val: any = r?.[c.key];
 
-                        // ✅ DOB column
-                        if (c.key === "dob") val = formatDOB(r)
+                        if (c.key === "dob") val = formatDOB(r);
 
-                        // ✅ show "Other(text)" on Discipline/Rank main columns
                         if (c.key === "discipline") {
                           if (String(r.discipline).toLowerCase() === "other") {
-                            const extra = (r.disciplineOther ?? "").trim()
-                            val = extra ? `Other (${extra})` : "Other"
+                            const extra = (r.disciplineOther ?? "").trim();
+                            val = extra ? `Other (${extra})` : "Other";
                           }
                         }
 
                         if (c.key === "rank") {
                           if (String(r.rank).toLowerCase() === "other") {
-                            const extra = (r.rankOther ?? "").trim()
-                            val = extra ? `Other (${extra})` : "Other"
+                            const extra = (r.rankOther ?? "").trim();
+                            val = extra ? `Other (${extra})` : "Other";
                           }
                         }
 
-                        // ✅ Arrays with Other info (main columns)
-                        if (c.key === "qualifications") {
-                          val = withOther(r.qualifications, r.qualificationsOther)
-                        }
+                        if (c.key === "qualifications") val = withOther(r.qualifications, r.qualificationsOther);
+                        if (c.key === "vesselTypes") val = withOther(r.vesselTypes, r.vesselTypesOther);
+                        if (c.key === "shoresideExperience") val = withOther(r.shoresideExperience, r.shoresideExperienceOther);
+                        if (c.key === "surveyingExperience") val = withOther(r.surveyingExperience, r.surveyingExperienceOther);
+                        if (c.key === "vesselTypeSurveyingExperience")
+                          val = withOther(r.vesselTypeSurveyingExperience, r.vesselTypeSurveyingExperienceOther);
+                        if (c.key === "accreditations") val = withOther(r.accreditations, r.accreditationsOther);
+                        if (c.key === "coursesCompleted") val = withOther(r.coursesCompleted, r.coursesCompletedOther);
 
-                        if (c.key === "vesselTypes") {
-                          val = withOther(r.vesselTypes, r.vesselTypesOther)
-                        }
+                        if (c.key === "experienceByQualification") val = formatExperienceByQualification(r?.experienceByQualification);
 
-                        if (c.key === "shoresideExperience") {
-                          val = withOther(
-                            r.shoresideExperience,
-                            r.shoresideExperienceOther
-                          )
-                        }
-
-                        if (c.key === "surveyingExperience") {
-                          val = withOther(
-                            r.surveyingExperience,
-                            r.surveyingExperienceOther
-                          )
-                        }
-
-                        if (c.key === "vesselTypeSurveyingExperience") {
-                          val = withOther(
-                            r.vesselTypeSurveyingExperience,
-                            r.vesselTypeSurveyingExperienceOther
-                          )
-                        }
-
-                        if (c.key === "accreditations") {
-                          val = withOther(r.accreditations, r.accreditationsOther)
-                        }
-
-                        if (c.key === "coursesCompleted") {
-                          val = withOther(
-                            r.coursesCompleted,
-                            r.coursesCompletedOther
-                          )
-                        }
-
-                        // ✅ Experience mapping
-                        if (c.key === "experienceByQualification") {
-                          val = formatExperienceByQualification(
-                            r?.experienceByQualification
-                          )
-                        }
-
-                        // ✅ References
                         if (c.key === "references") {
                           val = r?.references?.length
-                            ? r.references
-                                .map((x: any) => `${x.name} (${x.contact})`)
-                                .join(" | ")
-                            : "—"
+                            ? r.references.map((x: any) => `${x.name} (${x.contact})`).join(" | ")
+                            : "—";
                         }
 
-                        // ✅ Photo cell
+                        // ✅ Photo cell (S3 preferred)
                         if (c.key === "photoFile") {
-                          const url = toFileUrl(r.photoFile)
-                          const fname = fileNameFromPath(r.photoFile)
+                          const s3Key = r.photoS3Key as string | null;
+                          const legacy = r.photoPath as string | null;
+
+                          const url = s3Key ? viewUrlCache[s3Key] : legacy ? toLegacyFileUrl(legacy) : "";
+                          const fname = s3Key ? fileNameFromPath(s3Key) : legacy ? fileNameFromPath(legacy) : "";
 
                           return (
-                            <td
-                              key={c.key}
-                              className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
-                            >
+                            <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
                               {!url ? (
                                 "—"
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[220px]">
-                                  <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="group"
-                                    title="Open photo"
-                                  >
+                                  <a href={url} target="_blank" rel="noreferrer" className="group" title="Open photo">
                                     <img
                                       src={url}
                                       alt="Uploaded"
@@ -525,10 +494,7 @@ export default function FormRecords() {
                                   </a>
 
                                   <div className="min-w-0">
-                                    <p className="text-xs text-slate-500 truncate max-w-[140px]">
-                                      {clipMiddle(fname, 14, 10)}
-                                    </p>
-
+                                    <p className="text-xs text-slate-500 truncate max-w-[140px]">{clipMiddle(fname, 14, 10)}</p>
                                     <div className="mt-1 flex items-center gap-2">
                                       <a
                                         href={url}
@@ -543,19 +509,19 @@ export default function FormRecords() {
                                 </div>
                               )}
                             </td>
-                          )
+                          );
                         }
 
-                        // ✅ CV cell
+                        // ✅ CV cell (S3 preferred)
                         if (c.key === "cvFile") {
-                          const url = toFileUrl(r.cvFile)
-                          const fname = fileNameFromPath(r.cvFile)
+                          const s3Key = r.cvS3Key as string | null;
+                          const legacy = r.cvPath as string | null;
+
+                          const url = s3Key ? viewUrlCache[s3Key] : legacy ? toLegacyFileUrl(legacy) : "";
+                          const fname = s3Key ? fileNameFromPath(s3Key) : legacy ? fileNameFromPath(legacy) : "";
 
                           return (
-                            <td
-                              key={c.key}
-                              className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
-                            >
+                            <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
                               {!url ? (
                                 "—"
                               ) : (
@@ -588,18 +554,15 @@ export default function FormRecords() {
                                 </div>
                               )}
                             </td>
-                          )
+                          );
                         }
 
-                        // ✅ Actions
+                        // ✅ Actions (Review)
                         if (c.key === "actions") {
-                          const isBusy = busyId === r.id
+                          const isBusy = busyId === r.id;
 
                           return (
-                            <td
-                              key={c.key}
-                              className="px-4 py-4 align-top text-left border-b border-slate-200"
-                            >
+                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
                               {r.reviewed ? (
                                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
                                   Reviewed
@@ -609,37 +572,28 @@ export default function FormRecords() {
                                   type="button"
                                   disabled={isBusy}
                                   onClick={() => handleReview(r.id)}
-                                  className={`
-                                    px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                                    ${
-                                      isBusy
-                                        ? "bg-slate-300 text-slate-600 cursor-not-allowed"
-                                        : "bg-slate-900 text-white hover:bg-slate-800"
-                                    }
-                                  `}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                    isBusy ? "bg-slate-300 text-slate-600 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"
+                                  }`}
                                 >
                                   {isBusy ? "Reviewing..." : "Review"}
                                 </button>
                               )}
                             </td>
-                          )
+                          );
                         }
 
-                        // ✅ marketingConsent boolean
                         if (c.key === "marketingConsent") {
-                          val = r?.marketingConsent ? "Yes" : "No"
+                          val = r?.marketingConsent ? "Yes" : "No";
                         }
 
                         // ✅ Approve
                         if (c.key === "approve") {
-                          const isBusy = busyId === r.id
-                          const canApprove = r.reviewed && !r.approved && !isBusy
+                          const isBusy = busyId === r.id;
+                          const canApprove = r.reviewed && !r.approved && !isBusy;
 
                           return (
-                            <td
-                              key={c.key}
-                              className="px-4 py-4 align-top text-left border-b border-slate-200"
-                            >
+                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
                               {r.approved ? (
                                 <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold">
                                   Approved
@@ -649,32 +603,44 @@ export default function FormRecords() {
                                   type="button"
                                   disabled={!canApprove}
                                   onClick={() => handleApprove(r.id)}
-                                  className={`
-                                    px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                                    ${
-                                      canApprove
-                                        ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
-                                    }
-                                  `}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                    canApprove ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                  }`}
                                   title={!r.reviewed ? "Please review first" : "Approve"}
                                 >
                                   {isBusy ? "Approving..." : "Approve"}
                                 </button>
                               )}
                             </td>
-                          )
+                          );
+                        }
+
+                        // ✅ Delete
+                        if (c.key === "delete") {
+                          const isBusy = busyId === r.id;
+
+                          return (
+                            <td key={c.key} className="px-4 py-4 align-top text-left border-b border-slate-200">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleDelete(r.id)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                  isBusy ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-red-600 text-white hover:bg-red-700"
+                                }`}
+                              >
+                                {isBusy ? "Deleting..." : "Delete"}
+                              </button>
+                            </td>
+                          );
                         }
 
                         // default cell
                         return (
-                          <td
-                            key={c.key}
-                            className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200"
-                          >
+                          <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
                             {val ? String(val) : "—"}
                           </td>
-                        )
+                        );
                       })}
                     </tr>
                   ))
@@ -709,5 +675,5 @@ export default function FormRecords() {
         </div>
       </div>
     </AdminLayout>
-  )
+  );
 }

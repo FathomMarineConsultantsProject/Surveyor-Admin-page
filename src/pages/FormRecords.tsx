@@ -53,6 +53,7 @@ const COLUMNS = [
 
   { key: "references", label: "References" },
 
+  // These are "slots" in UI; we will render S3 view links/buttons here:
   { key: "cvFile", label: "CV" },
   { key: "photoFile", label: "Photo" },
 
@@ -128,11 +129,7 @@ function normalizeRecord(r: any) {
 
     references: r.refs ?? [],
 
-    // ✅ Legacy (local uploads)
-    photoPath: r.photo_path ?? null,
-    cvPath: r.cv_path ?? null,
-
-    // ✅ New S3 keys
+    // ✅ ONLY NEW RECORDS (S3)
     photoS3Key: r.photo_s3_key ?? null,
     cvS3Key: r.cv_s3_key ?? null,
 
@@ -158,6 +155,7 @@ function normalizeRecord(r: any) {
   };
 }
 
+// ✅ show "Other (text)" when array includes Other
 const withOther = (arr: any, otherText?: string) => {
   const list = Array.isArray(arr) ? arr : [];
   const hasOther = list.includes("Other") || list.includes("other");
@@ -183,16 +181,13 @@ const formatExperienceByQualification = (obj: any) => {
   return entries.map(([k, t]: any) => `${k}: ${t.years}y ${t.months}m ${t.days}d`).join(" | ");
 };
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
-const toLegacyFileUrl = (p: string) => {
-  if (!p) return "";
-  if (p.startsWith("http://") || p.startsWith("https://")) return p;
-  return `${API_BASE}/${p.replace(/^\/+/, "")}`;
-};
+function getAdminToken() {
+  return localStorage.getItem("admin_token") || sessionStorage.getItem("admin_token") || "";
+}
 
 const fileNameFromPath = (p: string) => (p ? p.split("/").pop() || p : "");
-
 const clipMiddle = (s = "", head = 18, tail = 10) => {
   if (!s) return "";
   if (s.length <= head + tail + 3) return s;
@@ -200,10 +195,15 @@ const clipMiddle = (s = "", head = 18, tail = 10) => {
 };
 
 async function getPresignedViewUrl(key: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/files/view?key=${encodeURIComponent(key)}`);
+  const token = getAdminToken();
+
+  const res = await fetch(`${API_BASE}/api/files/view?key=${encodeURIComponent(key)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
   if (!res.ok) throw new Error("Failed to get view url");
-  const data = await res.json();
-  return data.url;
+  const data = await res.json().catch(() => ({}));
+  return data.url || "";
 }
 
 export default function FormRecords() {
@@ -217,17 +217,18 @@ export default function FormRecords() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reviewed">("pending");
   const pageSize = 8;
 
-  // Cache for presigned URLs so we don’t refetch endlessly
+  // Cache for presigned URLs (key -> url)
   const [viewUrlCache, setViewUrlCache] = useState<Record<string, string>>({});
 
   async function ensureCachedUrl(key: string) {
     if (!key) return;
     if (viewUrlCache[key]) return;
+
     try {
       const url = await getPresignedViewUrl(key);
       setViewUrlCache((prev) => ({ ...prev, [key]: url }));
     } catch {
-      // ignore
+      // ignore for now
     }
   }
 
@@ -257,7 +258,7 @@ export default function FormRecords() {
 
     try {
       setBusyId(id);
-      await deleteForm(id, localStorage.getItem("token") || "");
+      await deleteForm(id); // ✅ make sure services/api.ts uses /api/form/:id and admin_token
       setRows((prev) => prev.filter((x) => x.id !== id));
     } finally {
       setBusyId(null);
@@ -266,10 +267,12 @@ export default function FormRecords() {
 
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       try {
         setLoading(true);
         setApiError("");
+
         const res = await getFormRecords();
         const list = res?.data || [];
         const normalized = list.map(normalizeRecord);
@@ -280,6 +283,7 @@ export default function FormRecords() {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
@@ -314,14 +318,17 @@ export default function FormRecords() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
 
-  // Prefetch presigned URLs for visible rows (photo + cv)
+  // Prefetch presigned URLs for visible page (S3 keys only)
   useEffect(() => {
-    (async () => {
-      for (const r of paged) {
-        if (r.photoS3Key) await ensureCachedUrl(r.photoS3Key);
-        if (r.cvS3Key) await ensureCachedUrl(r.cvS3Key);
-      }
-    })();
+    const keys = new Set<string>();
+    for (const r of paged) {
+      if (r.photoS3Key) keys.add(r.photoS3Key);
+      if (r.cvS3Key) keys.add(r.cvS3Key);
+    }
+
+    keys.forEach((k) => {
+      if (!viewUrlCache[k]) ensureCachedUrl(k);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paged]);
 
@@ -470,18 +477,18 @@ export default function FormRecords() {
                             : "—";
                         }
 
-                        // ✅ Photo cell (S3 preferred)
+                        // ✅ PHOTO (S3 ONLY; ignore legacy)
                         if (c.key === "photoFile") {
                           const s3Key = r.photoS3Key as string | null;
-                          const legacy = r.photoPath as string | null;
-
-                          const url = s3Key ? viewUrlCache[s3Key] : legacy ? toLegacyFileUrl(legacy) : "";
-                          const fname = s3Key ? fileNameFromPath(s3Key) : legacy ? fileNameFromPath(legacy) : "";
+                          const url = s3Key ? viewUrlCache[s3Key] : "";
+                          const fname = s3Key ? fileNameFromPath(s3Key) : "";
 
                           return (
                             <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
-                              {!url ? (
+                              {!s3Key ? (
                                 "—"
+                              ) : !url ? (
+                                <span className="text-slate-500 text-xs">Loading...</span>
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[220px]">
                                   <a href={url} target="_blank" rel="noreferrer" className="group" title="Open photo">
@@ -494,7 +501,10 @@ export default function FormRecords() {
                                   </a>
 
                                   <div className="min-w-0">
-                                    <p className="text-xs text-slate-500 truncate max-w-[140px]">{clipMiddle(fname, 14, 10)}</p>
+                                    <p className="text-xs text-slate-500 truncate max-w-[140px]">
+                                      {clipMiddle(fname, 14, 10)}
+                                    </p>
+
                                     <div className="mt-1 flex items-center gap-2">
                                       <a
                                         href={url}
@@ -512,18 +522,18 @@ export default function FormRecords() {
                           );
                         }
 
-                        // ✅ CV cell (S3 preferred)
+                        // ✅ CV (S3 ONLY; ignore legacy)
                         if (c.key === "cvFile") {
                           const s3Key = r.cvS3Key as string | null;
-                          const legacy = r.cvPath as string | null;
-
-                          const url = s3Key ? viewUrlCache[s3Key] : legacy ? toLegacyFileUrl(legacy) : "";
-                          const fname = s3Key ? fileNameFromPath(s3Key) : legacy ? fileNameFromPath(legacy) : "";
+                          const url = s3Key ? viewUrlCache[s3Key] : "";
+                          const fname = s3Key ? fileNameFromPath(s3Key) : "";
 
                           return (
                             <td key={c.key} className="px-4 py-4 text-sm text-slate-800 border-b border-slate-200">
-                              {!url ? (
+                              {!s3Key ? (
                                 "—"
+                              ) : !url ? (
+                                <span className="text-slate-500 text-xs">Loading...</span>
                               ) : (
                                 <div className="flex items-center gap-3 min-w-[320px]">
                                   <div className="h-10 w-10 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-700 text-xs font-bold">
@@ -573,7 +583,9 @@ export default function FormRecords() {
                                   disabled={isBusy}
                                   onClick={() => handleReview(r.id)}
                                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                    isBusy ? "bg-slate-300 text-slate-600 cursor-not-allowed" : "bg-slate-900 text-white hover:bg-slate-800"
+                                    isBusy
+                                      ? "bg-slate-300 text-slate-600 cursor-not-allowed"
+                                      : "bg-slate-900 text-white hover:bg-slate-800"
                                   }`}
                                 >
                                   {isBusy ? "Reviewing..." : "Review"}
@@ -604,7 +616,9 @@ export default function FormRecords() {
                                   disabled={!canApprove}
                                   onClick={() => handleApprove(r.id)}
                                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                    canApprove ? "bg-emerald-600 text-white hover:bg-emerald-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                    canApprove
+                                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                                      : "bg-slate-200 text-slate-400 cursor-not-allowed"
                                   }`}
                                   title={!r.reviewed ? "Please review first" : "Approve"}
                                 >
@@ -626,7 +640,9 @@ export default function FormRecords() {
                                 disabled={isBusy}
                                 onClick={() => handleDelete(r.id)}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                  isBusy ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-red-600 text-white hover:bg-red-700"
+                                  isBusy
+                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                    : "bg-red-600 text-white hover:bg-red-700"
                                 }`}
                               >
                                 {isBusy ? "Deleting..." : "Delete"}

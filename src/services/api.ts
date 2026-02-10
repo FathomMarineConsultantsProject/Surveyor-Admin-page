@@ -1,6 +1,7 @@
 const BASE_URL =
   (import.meta.env.VITE_API_URL ||
-    "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app").replace(/\/+$/, "");
+    "https://surveyor-form-backend-git-main-fmc-projects-projects.vercel.app"
+  ).replace(/\/+$/, "");
 
 async function safeJson(res: Response) {
   try {
@@ -14,12 +15,12 @@ export async function apiGet(url: string) {
   const endpoint = url.startsWith("/") ? url : `/${url}`;
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     method: "GET",
-    credentials: "include", // ✅ cookie sent
+    credentials: "include",
     headers: { Accept: "application/json" },
   });
 
   const data = await safeJson(res);
-  if (!res.ok) throw new Error(data?.message || `GET ${url} failed (${res.status})`);
+  if (!res.ok) throw new Error(data?.message || "Request failed");
   return data;
 }
 
